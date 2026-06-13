@@ -20,13 +20,14 @@
 关键文件：
 
 - `app/main.py`：应用工厂、生命周期、日志和后台 worker。
-- `app/run_server.py`：读取 `.env` 后启动 Uvicorn 服务。
+- `app/run_server.py`：读取 `.env` 后启动 Uvicorn 服务，并监控启动脚本父进程。
 - `app/security.py`：局域网默认放行、公网白名单、管理员认证、本机恢复限制。
 - `app/upload_validation.py`：扩展名、文件头、大小和安全文件名校验。
 - `app/queue_store.py`：SQLite 打印队列和暂停状态持久化。
 - `app/printer.py`：Lenovo LJ2205 的 Windows 状态检查与打印命令封装。
 - `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
+- `scripts/start_foreground.ps1`：前台守护启动脚本，实时输出并写入启动日志。
 - `start_server.bat`：Windows 双击一键启动脚本，项目文件夹移动后仍可相对路径运行。
 - `package_release.bat`：Windows 双击一键打包脚本，生成可分发 zip。
 
@@ -64,6 +65,15 @@ Get-Printer | Select-Object Name, PrinterStatus, WorkOffline
 ## 启动
 
 Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖、首次生成 `.env`，然后读取 `.env` 里的 `PRINT_SERVER_HOST` 和 `PRINT_SERVER_PORT` 启动服务。
+
+启动窗口会保持活跃并实时输出日志。日志同时写入：
+
+```text
+data/logs/start-server-时间戳.log
+data/logs/start-server-latest.log
+```
+
+按 `Ctrl+C` 或关闭这个启动窗口会停止服务；启动入口还会监控父进程，避免窗口关闭后服务残留在后台。
 
 也可以手动启动：
 

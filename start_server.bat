@@ -11,6 +11,10 @@ if /I "%~1"=="--check" (
         echo [ERROR] app\main.py not found.
         exit /b 1
     )
+    if not exist "scripts\start_foreground.ps1" (
+        echo [ERROR] scripts\start_foreground.ps1 not found.
+        exit /b 1
+    )
     echo [OK] start_server.bat is ready in %CD%
     exit /b 0
 )
@@ -52,10 +56,10 @@ if not errorlevel 1 (
 echo.
 echo [INFO] Starting PrintSevers...
 echo [INFO] Open http://127.0.0.1:8000 after the server is ready.
-echo [INFO] Press Ctrl+C in this window to stop.
+echo [INFO] Keep this window open. Press Ctrl+C or close this window to stop all service processes.
 echo.
 
-python -m app.run_server
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_foreground.ps1" -PythonExe "%CD%\.venv\Scripts\python.exe"
 goto end
 
 :find_python
