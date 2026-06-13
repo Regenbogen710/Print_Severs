@@ -1,1 +1,1 @@
-"""Application routers."""
+"""应用路由模块。"""
