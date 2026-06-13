@@ -28,7 +28,7 @@
 - `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
 - `scripts/start_foreground.ps1`：前台守护启动脚本，实时输出并写入启动日志。
-- `start_server.bat`：Windows 双击一键启动脚本，首次启动会生成 `config.ini`。
+- `start_server.bat`：Windows 双击一键启动脚本，读取根目录 `config.ini` 启动服务。
 - `package_release.bat`：Windows 双击一键打包脚本，生成可分发 zip。
 
 ## 安装
@@ -37,7 +37,6 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-Copy-Item config.example.ini config.ini
 ```
 
 编辑 `config.ini`，至少修改管理员密码：
@@ -50,8 +49,6 @@ admin_password = 请换成强密码
 [printer]
 printer_name = Lenovo LJ2205
 ```
-
-旧版本的 `.env` 仍然兼容；如果 `config.ini` 存在，优先使用 `config.ini`。
 
 ## 连接 Lenovo LJ2205
 
@@ -83,7 +80,7 @@ libreoffice_path = C:\Program Files\LibreOffice\program\soffice.exe
 
 ## 启动
 
-Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖、首次生成 `config.ini`，然后读取 `config.ini` 里的 `host` 和 `port` 启动服务。
+Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖，然后读取 `config.ini` 里的 `host` 和 `port` 启动服务。
 
 启动窗口会保持活跃并实时输出日志。日志同时写入：
 
@@ -250,7 +247,7 @@ dry_run = true
 dist/PrintSevers-版本号-windows-时间戳.zip
 ```
 
-压缩包会包含源码、启动脚本、配置示例、测试和说明文档；不会包含 `.env`、`config.ini`、`.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
+压缩包会包含源码、启动脚本、`config.ini`、测试和说明文档；不会包含 `.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
 
 命令行打包：
 

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from app.config import Settings, load_config_file
 
 
@@ -49,3 +51,16 @@ require_auth_for_upload = true
     assert settings.admin_username == "root"
     assert settings.admin_password == "changed"
     assert settings.require_auth_for_upload
+
+
+def test_settings_ignores_legacy_dotenv(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.delenv("PRINT_SERVER_ADMIN_PASSWORD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "PRINT_SERVER_ADMIN_PASSWORD=from-dotenv\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings()
+
+    assert settings.admin_password == "change-this-password"

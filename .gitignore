@@ -1,5 +1,4 @@
 .env
-config.ini
 .venv/
 __pycache__/
 *.py[cod]

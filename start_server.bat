@@ -15,8 +15,8 @@ if /I "%~1"=="--check" (
         echo [ERROR] scripts\start_foreground.ps1 not found.
         exit /b 1
     )
-    if not exist "config.example.ini" (
-        echo [ERROR] config.example.ini not found.
+    if not exist "config.ini" (
+        echo [ERROR] config.ini not found.
         exit /b 1
     )
     echo [OK] start_server.bat is ready in %CD%
@@ -47,27 +47,13 @@ python -m pip install -r requirements.txt
 if errorlevel 1 goto fail
 
 if not exist "config.ini" (
-    if not exist ".env" (
-        echo [INFO] Creating config.ini from config.example.ini...
-        copy "config.example.ini" "config.ini" >nul
-        if errorlevel 1 goto fail
-    )
+    echo [ERROR] config.ini not found. Please restore config.ini before starting.
+    goto fail
 )
 
-if exist ".env" (
-    echo [INFO] Found legacy .env. config.ini takes priority when it exists.
-)
-
-if exist "config.ini" (
-    findstr /C:"admin_password = change-this-password" "config.ini" >nul 2>nul
-    if not errorlevel 1 (
-        echo [WARN] Please edit config.ini and change admin_password before public use.
-    )
-) else (
-    findstr /C:"PRINT_SERVER_ADMIN_PASSWORD=change-this-password" ".env" >nul 2>nul
-    if not errorlevel 1 (
-        echo [WARN] Please edit .env and change PRINT_SERVER_ADMIN_PASSWORD before public use.
-    )
+findstr /C:"admin_password = change-this-password" "config.ini" >nul 2>nul
+if not errorlevel 1 (
+    echo [WARN] Please edit config.ini and change admin_password before public use.
 )
 
 echo.
