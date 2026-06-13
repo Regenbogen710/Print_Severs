@@ -34,6 +34,7 @@ $Items = @(
     ".env.example",
     ".gitattributes",
     ".gitignore",
+    "config.example.ini",
     "README.md",
     "pyproject.toml",
     "requirements.txt",
@@ -71,6 +72,7 @@ foreach ($Name in $ExcludedNames) {
 Get-ChildItem -LiteralPath $StageProject -Recurse -Force -File -ErrorAction SilentlyContinue |
     Where-Object {
         $_.Name -eq ".env" -or
+        $_.Name -eq "config.ini" -or
         $_.Extension -in @(".pyc", ".pyo") -or
         $_.Name -like "*.sqlite3" -or
         $_.Name -like "*.sqlite3-shm" -or
@@ -86,8 +88,8 @@ $Manifest = @(
     "BuiltAt: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "",
     "Start: double-click start_server.bat",
-    "Configure: copy/edit .env after first start or edit generated .env",
-    "Excluded: .git, .env, data, dist, virtualenvs, caches, logs"
+    "Configure: edit generated config.ini after first start",
+    "Excluded: .git, .env, config.ini, data, dist, virtualenvs, caches, logs"
 )
 $Manifest | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
 

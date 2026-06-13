@@ -20,7 +20,7 @@
 关键文件：
 
 - `app/main.py`：应用工厂、生命周期、日志和后台 worker。
-- `app/run_server.py`：读取 `.env` 后启动 Uvicorn 服务，并监控启动脚本父进程。
+- `app/run_server.py`：读取配置后启动 Uvicorn 服务，并监控启动脚本父进程。
 - `app/security.py`：局域网默认放行、公网白名单、管理员认证、本机恢复限制。
 - `app/upload_validation.py`：扩展名、文件头、大小和安全文件名校验。
 - `app/queue_store.py`：SQLite 打印队列和暂停状态持久化。
@@ -28,7 +28,7 @@
 - `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
 - `scripts/start_foreground.ps1`：前台守护启动脚本，实时输出并写入启动日志。
-- `start_server.bat`：Windows 双击一键启动脚本，项目文件夹移动后仍可相对路径运行。
+- `start_server.bat`：Windows 双击一键启动脚本，首次启动会生成 `config.ini`。
 - `package_release.bat`：Windows 双击一键打包脚本，生成可分发 zip。
 
 ## 安装
@@ -37,16 +37,21 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-Copy-Item .env.example .env
+Copy-Item config.example.ini config.ini
 ```
 
-编辑 `.env`，至少修改管理员密码：
+编辑 `config.ini`，至少修改管理员密码：
 
-```env
-PRINT_SERVER_ADMIN_USERNAME=admin
-PRINT_SERVER_ADMIN_PASSWORD=请换成强密码
-PRINT_SERVER_PRINTER_NAME=Lenovo LJ2205
+```ini
+[auth]
+admin_username = admin
+admin_password = 请换成强密码
+
+[printer]
+printer_name = Lenovo LJ2205
 ```
+
+旧版本的 `.env` 仍然兼容；如果 `config.ini` 存在，优先使用 `config.ini`。
 
 ## 连接 Lenovo LJ2205
 
@@ -57,14 +62,14 @@ PRINT_SERVER_PRINTER_NAME=Lenovo LJ2205
 Get-Printer | Select-Object Name, PrinterStatus, WorkOffline
 ```
 
-3. 如果名称不是 `Lenovo LJ2205`，把 `.env` 里的 `PRINT_SERVER_PRINTER_NAME` 改成实际名称。
-4. 推荐安装 SumatraPDF 并配置 `PRINT_SERVER_SUMATRA_PDF_PATH`，PDF 打印会更可靠。
-5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `PRINT_SERVER_LIBREOFFICE_PATH`。
+3. 如果名称不是 `Lenovo LJ2205`，把 `config.ini` 里的 `printer_name` 改成实际名称。
+4. 推荐安装 SumatraPDF 并配置 `sumatra_pdf_path`，PDF 打印会更可靠。
+5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `libreoffice_path`。
 6. 如果未配置 SumatraPDF/LibreOffice，系统会回退到 Windows Shell 的 `PrintTo/Print`，此方式依赖本机默认应用，建议把 Lenovo LJ2205 设为默认打印机。
 
 ## 启动
 
-Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖、首次生成 `.env`，然后读取 `.env` 里的 `PRINT_SERVER_HOST` 和 `PRINT_SERVER_PORT` 启动服务。
+Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖、首次生成 `config.ini`，然后读取 `config.ini` 里的 `host` 和 `port` 启动服务。
 
 启动窗口会保持活跃并实时输出日志。日志同时写入：
 
@@ -110,7 +115,7 @@ http://192.168.1.20:8000
 
 上传时会做这些检查：
 
-- 文件大小不得超过 `PRINT_SERVER_MAX_UPLOAD_MB`。
+- 文件大小不得超过 `config.ini` 中的 `max_upload_mb`。
 - 扩展名必须在允许列表中。
 - PDF、图片、Office 文档、RTF 会校验基础文件头。
 - 文件名会去掉路径、Windows 非法字符和控制字符。
@@ -162,22 +167,25 @@ python scripts/local_admin.py pause --reason "维护打印机"
 
 默认公网关闭：
 
-```env
-PRINT_SERVER_PUBLIC_ACCESS_ENABLED=false
+```ini
+[access]
+public_access_enabled = false
 ```
 
 未来如果需要开放公网，建议放在反向代理或 VPN 后面，再启用白名单：
 
-```env
-PRINT_SERVER_PUBLIC_ACCESS_ENABLED=true
-PRINT_SERVER_PUBLIC_IP_WHITELIST=203.0.113.10,198.51.100.0/24
+```ini
+[access]
+public_access_enabled = true
+public_ip_whitelist = 203.0.113.10,198.51.100.0/24
 ```
 
 如果使用反向代理，并且需要读取真实客户端 IP：
 
-```env
-PRINT_SERVER_TRUST_PROXY_HEADERS=true
-PRINT_SERVER_TRUSTED_PROXY_IPS=127.0.0.1,192.168.1.2
+```ini
+[access]
+trust_proxy_headers = true
+trusted_proxy_ips = 127.0.0.1,192.168.1.2
 ```
 
 只有可信代理的 `X-Forwarded-For` 会被采信。公网白名单之外的 IP 会返回 `403`。
@@ -193,15 +201,17 @@ PRINT_SERVER_TRUSTED_PROXY_IPS=127.0.0.1,192.168.1.2
 
 这些操作都使用 HTTP Basic：
 
-```env
-PRINT_SERVER_ADMIN_USERNAME=admin
-PRINT_SERVER_ADMIN_PASSWORD=请换成强密码
+```ini
+[auth]
+admin_username = admin
+admin_password = 请换成强密码
 ```
 
 如需让上传也要求认证：
 
-```env
-PRINT_SERVER_REQUIRE_AUTH_FOR_UPLOAD=true
+```ini
+[auth]
+require_auth_for_upload = true
 ```
 
 ## 测试
@@ -213,8 +223,9 @@ pytest
 
 不连接真实打印机时，可用 dry-run 模式验证队列流程：
 
-```env
-PRINT_SERVER_DRY_RUN=true
+```ini
+[printer]
+dry_run = true
 ```
 
 ## 打包
@@ -225,7 +236,7 @@ PRINT_SERVER_DRY_RUN=true
 dist/PrintSevers-版本号-windows-时间戳.zip
 ```
 
-压缩包会包含源码、启动脚本、配置示例、测试和说明文档；不会包含 `.env`、`.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
+压缩包会包含源码、启动脚本、配置示例、测试和说明文档；不会包含 `.env`、`config.ini`、`.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
 
 命令行打包：
 

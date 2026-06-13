@@ -1,9 +1,47 @@
+import configparser
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+CONFIG_FILE = Path("config.ini")
+
+CONFIG_KEY_MAP = {
+    "server": {
+        "host": "host",
+        "port": "port",
+        "worker_enabled": "worker_enabled",
+    },
+    "printer": {
+        "printer_name": "printer_name",
+        "dry_run": "dry_run",
+        "sumatra_pdf_path": "sumatra_pdf_path",
+        "libreoffice_path": "libreoffice_path",
+    },
+    "storage": {
+        "data_dir": "data_dir",
+        "max_upload_mb": "max_upload_mb",
+        "allowed_extensions": "allowed_extensions",
+    },
+    "access": {
+        "public_access_enabled": "public_access_enabled",
+        "public_ip_whitelist": "public_ip_whitelist",
+        "trust_proxy_headers": "trust_proxy_headers",
+        "trusted_proxy_ips": "trusted_proxy_ips",
+    },
+    "auth": {
+        "admin_username": "admin_username",
+        "admin_password": "admin_password",
+        "require_auth_for_upload": "require_auth_for_upload",
+    },
+    "print": {
+        "print_command_timeout_seconds": "print_command_timeout_seconds",
+        "worker_poll_seconds": "worker_poll_seconds",
+    },
+}
 
 
 class Settings(BaseSettings):
@@ -106,6 +144,24 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    settings = Settings()
+    settings = Settings(**load_config_file(CONFIG_FILE))
     settings.ensure_directories()
     return settings
+
+
+def load_config_file(path: Path = CONFIG_FILE) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+
+    parser = configparser.ConfigParser()
+    parser.read(path, encoding="utf-8")
+
+    values: dict[str, Any] = {}
+    for section, key_map in CONFIG_KEY_MAP.items():
+        if not parser.has_section(section):
+            continue
+        for config_key, settings_key in key_map.items():
+            if not parser.has_option(section, config_key):
+                continue
+            values[settings_key] = parser.get(section, config_key)
+    return values
