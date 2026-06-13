@@ -20,12 +20,14 @@
 关键文件：
 
 - `app/main.py`：应用工厂、生命周期、日志和后台 worker。
+- `app/run_server.py`：读取 `.env` 后启动 Uvicorn 服务。
 - `app/security.py`：局域网默认放行、公网白名单、管理员认证、本机恢复限制。
 - `app/upload_validation.py`：扩展名、文件头、大小和安全文件名校验。
 - `app/queue_store.py`：SQLite 打印队列和暂停状态持久化。
 - `app/printer.py`：Lenovo LJ2205 的 Windows 状态检查与打印命令封装。
 - `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
+- `start_server.bat`：Windows 双击一键启动脚本，项目文件夹移动后仍可相对路径运行。
 
 ## 安装
 
@@ -59,6 +61,10 @@ Get-Printer | Select-Object Name, PrinterStatus, WorkOffline
 6. 如果未配置 SumatraPDF/LibreOffice，系统会回退到 Windows Shell 的 `PrintTo/Print`，此方式依赖本机默认应用，建议把 Lenovo LJ2205 设为默认打印机。
 
 ## 启动
+
+Windows 可直接双击根目录的 `start_server.bat`。脚本会自动创建 `.venv`、安装依赖、首次生成 `.env`，然后读取 `.env` 里的 `PRINT_SERVER_HOST` 和 `PRINT_SERVER_PORT` 启动服务。
+
+也可以手动启动：
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
