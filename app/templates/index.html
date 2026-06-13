@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ settings.app_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Lenovo LJ2205</p>
+        <h1>PrintSevers</h1>
+      </div>
+      <div class="service-state {% if snapshot.state.paused %}is-paused{% else %}is-running{% endif %}">
+        <span class="dot"></span>
+        {% if snapshot.state.paused %}已暂停{% else %}运行中{% endif %}
+      </div>
+    </header>
+
+    {% if message %}
+      <div class="notice success">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="notice error">{{ error }}</div>
+    {% endif %}
+
+    <section class="status-grid">
+      <div class="panel">
+        <span class="label">服务状态</span>
+        <strong>{% if snapshot.state.paused %}暂停{% else %}可接收任务{% endif %}</strong>
+        <p>{{ snapshot.state.pause_reason or "队列 worker 正在监听新任务" }}</p>
+      </div>
+      <div class="panel">
+        <span class="label">打印机</span>
+        <strong>{% if snapshot.printer.ready %}可用{% else %}不可用{% endif %}</strong>
+        <p>{{ snapshot.printer.message }}</p>
+      </div>
+      <div class="panel">
+        <span class="label">访问模式</span>
+        <strong>{% if settings.public_access_enabled %}公网白名单{% else %}仅内网{% endif %}</strong>
+        <p>{% if settings.require_auth_for_upload %}上传需认证{% else %}上传免认证{% endif %}</p>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form class="upload-panel" action="/upload" method="post" enctype="multipart/form-data">
+        <div>
+          <span class="label">上传文件</span>
+          <h2>加入打印队列</h2>
+        </div>
+        <input type="file" name="upload" required accept="{{ settings.allowed_extensions | join(',') }}">
+        <button type="submit">上传</button>
+      </form>
+
+      <div class="admin-panel">
+        <form action="/admin/pause" method="post">
+          <label for="reason">暂停原因</label>
+          <input id="reason" name="reason" value="管理员手动暂停">
+          <button type="submit" class="secondary">暂停服务</button>
+        </form>
+        <form action="/admin/resume" method="post">
+          <button type="submit" class="primary">本机恢复</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="queue">
+      <div class="section-title">
+        <h2>打印队列</h2>
+        <span>{{ snapshot.jobs | length }} 个任务</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>文件</th>
+              <th>大小</th>
+              <th>状态</th>
+              <th>创建时间</th>
+              <th>错误</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in snapshot.jobs %}
+              <tr class="row-{{ job.status }}">
+                <td>#{{ job.id }}</td>
+                <td>
+                  <strong>{{ job.original_filename }}</strong>
+                  <span>{{ job.extension }}</span>
+                </td>
+                <td>{{ job.size_bytes | format_size }}</td>
+                <td><span class="badge badge-{{ job.status }}">{{ status_labels[job.status] }}</span></td>
+                <td>{{ job.created_at.astimezone().strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                <td class="error-cell">{{ job.error_message or "" }}</td>
+                <td class="actions">
+                  {% if job.status == "failed" %}
+                    <form action="/admin/jobs/{{ job.id }}/retry" method="post">
+                      <button type="submit" class="small">重试</button>
+                    </form>
+                  {% endif %}
+                  {% if job.status != "printing" and job.status != "deleted" %}
+                    <form action="/admin/jobs/{{ job.id }}/delete" method="post">
+                      <button type="submit" class="small danger">删除</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="7" class="empty">暂无任务</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 12000);
+  </script>
+</body>
+</html>
