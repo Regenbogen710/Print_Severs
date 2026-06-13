@@ -5,10 +5,16 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 
 from app.config import Settings
 from app.schemas import PrinterStatusOut
+
+
+PDF_EXTENSIONS = {".pdf"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff"}
+OFFICE_EXTENSIONS = {".doc", ".docx", ".rtf", ".txt"}
 
 
 @dataclass(frozen=True)
@@ -84,9 +90,11 @@ $result | ConvertTo-Json -Compress
             return PrintResult(True, f"dry-run 模式：已模拟提交 {file_path.name}")
 
         extension = file_path.suffix.lower()
-        if extension == ".pdf" and self.settings.sumatra_pdf_path:
+        if extension in PDF_EXTENSIONS:
             return self._print_with_sumatra(file_path)
-        if extension in {".doc", ".docx", ".rtf", ".txt"} and self.settings.libreoffice_path:
+        if extension in IMAGE_EXTENSIONS:
+            return self._print_with_mspaint(file_path)
+        if extension in OFFICE_EXTENSIONS:
             return self._print_with_libreoffice(file_path)
         return self._print_with_windows_shell(file_path)
 
@@ -147,9 +155,15 @@ $result | ConvertTo-Json -Compress
         )
 
     def _print_with_sumatra(self, file_path: Path) -> PrintResult:
-        executable = Path(self.settings.sumatra_pdf_path or "")
-        if not executable.exists():
-            return PrintResult(False, f"SumatraPDF 路径不存在：{executable}")
+        executable = self._resolve_sumatra_path()
+        if executable is None:
+            if self.settings.sumatra_pdf_path:
+                return PrintResult(False, f"配置的 SumatraPDF 路径不存在：{self.settings.sumatra_pdf_path}")
+            return PrintResult(
+                False,
+                "PDF 打印需要 SumatraPDF。请安装 SumatraPDF，或在 config.ini 的 [printer] 中设置 "
+                "sumatra_pdf_path = C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
+            )
         args = [
             str(executable),
             "-print-to",
@@ -160,10 +174,31 @@ $result | ConvertTo-Json -Compress
         ]
         return self._run_print_command(args, "SumatraPDF")
 
+    def _print_with_mspaint(self, file_path: Path) -> PrintResult:
+        executable = self._resolve_mspaint_path()
+        if executable is None:
+            return self._print_with_windows_shell(file_path)
+        args = [
+            str(executable),
+            "/pt",
+            str(file_path),
+            self.settings.printer_name,
+        ]
+        result = self._run_print_command(args, "Windows 画图")
+        if result.success:
+            return result
+        return self._print_with_windows_shell(file_path)
+
     def _print_with_libreoffice(self, file_path: Path) -> PrintResult:
-        executable = Path(self.settings.libreoffice_path or "")
-        if not executable.exists():
-            return PrintResult(False, f"LibreOffice 路径不存在：{executable}")
+        executable = self._resolve_libreoffice_path()
+        if executable is None:
+            if self.settings.libreoffice_path:
+                return PrintResult(False, f"配置的 LibreOffice 路径不存在：{self.settings.libreoffice_path}")
+            return PrintResult(
+                False,
+                "Office/文本文件打印需要 LibreOffice。请安装 LibreOffice，或在 config.ini 的 [printer] 中设置 "
+                "libreoffice_path = C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+            )
         args = [
             str(executable),
             "--headless",
@@ -198,10 +233,42 @@ try {
             extra_env={"PRINT_SERVER_PRINT_FILE": str(file_path)},
         )
         if completed.returncode != 0:
-            detail = _clean_output(completed.stderr or completed.stdout) or "Windows Shell 打印命令失败"
-            return PrintResult(False, detail)
+            detail = _friendly_shell_error(completed.stderr or completed.stdout, file_path.suffix.lower())
+            return PrintResult(False, detail or "Windows Shell 打印命令失败")
         detail = _clean_output(completed.stdout) or "已提交到 Windows 打印系统"
         return PrintResult(True, detail)
+
+    def _resolve_sumatra_path(self) -> Path | None:
+        return _resolve_executable(
+            self.settings.sumatra_pdf_path,
+            [
+                _env_path("ProgramFiles", "SumatraPDF", "SumatraPDF.exe"),
+                _env_path("ProgramFiles(x86)", "SumatraPDF", "SumatraPDF.exe"),
+                _env_path("LOCALAPPDATA", "SumatraPDF", "SumatraPDF.exe"),
+                Path("tools") / "SumatraPDF.exe",
+            ],
+            ["SumatraPDF.exe", "sumatrapdf.exe"],
+        )
+
+    def _resolve_libreoffice_path(self) -> Path | None:
+        return _resolve_executable(
+            self.settings.libreoffice_path,
+            [
+                _env_path("ProgramFiles", "LibreOffice", "program", "soffice.exe"),
+                _env_path("ProgramFiles(x86)", "LibreOffice", "program", "soffice.exe"),
+            ],
+            ["soffice.exe"],
+        )
+
+    def _resolve_mspaint_path(self) -> Path | None:
+        return _resolve_executable(
+            None,
+            [
+                _env_path("SystemRoot", "System32", "mspaint.exe"),
+                _env_path("SystemRoot", "SysWOW64", "mspaint.exe"),
+            ],
+            ["mspaint.exe"],
+        )
 
     def _run_print_command(self, args: list[str], label: str) -> PrintResult:
         try:
@@ -256,3 +323,47 @@ def _clean_output(value: str | None) -> str:
     if not value:
         return ""
     return " ".join(line.strip() for line in value.splitlines() if line.strip())
+
+
+def _env_path(name: str, *parts: str) -> Path | None:
+    base = os.environ.get(name, "")
+    return Path(base, *parts) if base else None
+
+
+def _resolve_executable(
+    configured_path: str | None,
+    candidates: list[Path | None],
+    names: list[str],
+) -> Path | None:
+    if configured_path:
+        configured = Path(os.path.expandvars(configured_path)).expanduser()
+        return configured if configured.is_file() else None
+
+    for candidate in candidates:
+        if candidate is not None and candidate.is_file():
+            return candidate
+
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+
+    return None
+
+
+def _friendly_shell_error(value: str | None, extension: str) -> str:
+    cleaned = _clean_output(value)
+    if "No application is associated" not in cleaned:
+        return cleaned
+
+    if extension in PDF_EXTENSIONS:
+        return (
+            "Windows 没有关联可打印的 PDF 程序。请安装 SumatraPDF，或在 config.ini 的 [printer] 中设置 "
+            "sumatra_pdf_path = C:\\Program Files\\SumatraPDF\\SumatraPDF.exe"
+        )
+    if extension in OFFICE_EXTENSIONS:
+        return (
+            "Windows 没有关联可打印的 Office/文本程序。请安装 LibreOffice，或在 config.ini 的 [printer] 中设置 "
+            "libreoffice_path = C:\\Program Files\\LibreOffice\\program\\soffice.exe"
+        )
+    return f"Windows 没有关联可打印的 {extension or '该'} 文件程序，请安装支持打印该格式的默认应用。"

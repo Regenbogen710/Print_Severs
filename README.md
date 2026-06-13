@@ -63,9 +63,23 @@ Get-Printer | Select-Object Name, PrinterStatus, WorkOffline
 ```
 
 3. 如果名称不是 `Lenovo LJ2205`，把 `config.ini` 里的 `printer_name` 改成实际名称。
-4. 推荐安装 SumatraPDF 并配置 `sumatra_pdf_path`，PDF 打印会更可靠。
-5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `libreoffice_path`。
-6. 如果未配置 SumatraPDF/LibreOffice，系统会回退到 Windows Shell 的 `PrintTo/Print`，此方式依赖本机默认应用，建议把 Lenovo LJ2205 设为默认打印机。
+4. 推荐安装 SumatraPDF 并配置 `sumatra_pdf_path`，PDF 打印会更可靠。留空时会自动查找常见安装路径。
+5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `libreoffice_path`。留空时会自动查找常见安装路径。
+6. 图片会优先调用 Windows 画图打印；其它格式才回退到 Windows Shell 的 `PrintTo/Print`。
+
+PDF 打印如果报“没有关联可打印程序”，请在 `config.ini` 中设置：
+
+```ini
+[printer]
+sumatra_pdf_path = C:\Program Files\SumatraPDF\SumatraPDF.exe
+```
+
+Office/文本文件打印如果报“没有关联可打印程序”，请设置：
+
+```ini
+[printer]
+libreoffice_path = C:\Program Files\LibreOffice\program\soffice.exe
+```
 
 ## 启动
 
@@ -247,5 +261,5 @@ dist/PrintSevers-版本号-windows-时间戳.zip
 ## 注意事项
 
 - Windows Shell 打印只能确认任务已交给关联应用，不能保证打印机物理出纸成功。
-- PDF 推荐使用 SumatraPDF，Word/RTF/TXT 推荐使用 LibreOffice 或已安装 Office。
+- PDF 推荐使用 SumatraPDF，Word/RTF/TXT 推荐使用 LibreOffice。
 - 公网开放前务必修改管理员密码，并在防火墙/反向代理层再次限制来源。
