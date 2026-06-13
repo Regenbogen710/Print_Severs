@@ -28,6 +28,7 @@
 - `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
 - `start_server.bat`：Windows 双击一键启动脚本，项目文件夹移动后仍可相对路径运行。
+- `package_release.bat`：Windows 双击一键打包脚本，生成可分发 zip。
 
 ## 安装
 
@@ -204,6 +205,22 @@ pytest
 
 ```env
 PRINT_SERVER_DRY_RUN=true
+```
+
+## 打包
+
+双击根目录的 `package_release.bat`，会在 `dist/` 下生成完整 Windows 分发包：
+
+```text
+dist/PrintSevers-版本号-windows-时间戳.zip
+```
+
+压缩包会包含源码、启动脚本、配置示例、测试和说明文档；不会包含 `.env`、`.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
+
+命令行打包：
+
+```powershell
+.\package_release.bat -NoPause
 ```
 
 ## 注意事项
