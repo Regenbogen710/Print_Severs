@@ -1,1 +1,1 @@
-"""Local print server package."""
+"""本地打印服务包。"""
