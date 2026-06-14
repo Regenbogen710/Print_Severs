@@ -37,6 +37,7 @@ $Items = @(
     "README.md",
     "pyproject.toml",
     "requirements.txt",
+    "deploy.bat",
     "start_server.bat",
     "package_release.bat",
     "app",
@@ -85,6 +86,7 @@ $Manifest = @(
     "Version: $Version",
     "BuiltAt: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "",
+    "Deploy: double-click deploy.bat",
     "Start: double-click start_server.bat",
     "Configure: edit config.ini before first start",
     "Excluded: .git, data, dist, virtualenvs, caches, logs"

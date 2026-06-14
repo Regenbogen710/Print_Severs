@@ -14,7 +14,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_printer, get_store
 from app.printer import WindowsPrinter
 from app.queue_store import QueueStore
-from app.schemas import PrintJobOut, QueueSnapshot, ServerState
+from app.schemas import PrintJobOut, QueueSnapshot, ServerState, UploadBatchResult, UploadFileResult
 from app.security import require_admin, require_local_request, require_upload_auth
 from app.upload_validation import sanitize_filename, validate_printable_file
 
@@ -68,15 +68,23 @@ async def home(
 
 @router.post("/upload", dependencies=[Depends(require_upload_auth)])
 async def upload_from_web(
-    upload: UploadFile = File(...),
+    upload: UploadFile | None = File(default=None),
+    uploads: list[UploadFile] | None = File(default=None),
     store: QueueStore = Depends(get_store),
     settings: Settings = Depends(get_settings),
 ):
-    try:
-        job = await _save_upload(upload, store, settings)
-    except HTTPException as exc:
-        return _redirect(error=str(exc.detail))
-    return _redirect(message=f"任务 #{job.id} 已加入队列")
+    files = _collect_uploads(upload=upload, uploads=uploads)
+    if not files:
+        return _redirect(error="请选择要上传的文件")
+
+    result = await _save_uploads(files, store, settings)
+    message = None
+    error = None
+    if result.accepted_count:
+        message = f"{result.accepted_count} 个文件已加入队列"
+    if result.rejected_count:
+        error = f"{result.rejected_count} 个文件上传失败"
+    return _redirect(message=message, error=error)
 
 
 @router.get("/api/status", response_model=QueueSnapshot)
@@ -99,6 +107,23 @@ async def upload_from_api(
     settings: Settings = Depends(get_settings),
 ):
     return await _save_upload(upload, store, settings)
+
+
+@router.post(
+    "/api/uploads",
+    response_model=UploadBatchResult,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_upload_auth)],
+)
+async def upload_many_from_api(
+    uploads: list[UploadFile] = File(...),
+    store: QueueStore = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+):
+    files = _collect_uploads(upload=None, uploads=uploads)
+    if not files:
+        raise HTTPException(status_code=400, detail="请选择要上传的文件")
+    return await _save_uploads(files, store, settings)
 
 
 @router.post("/admin/pause", dependencies=[Depends(require_admin)])
@@ -200,19 +225,20 @@ async def _save_upload(
     store: QueueStore,
     settings: Settings,
 ) -> PrintJobOut:
+    settings.ensure_directories()
     original_filename = upload.filename or "upload"
     safe_filename = sanitize_filename(original_filename)
-    head = await upload.read(8192)
-    validation = validate_printable_file(safe_filename, settings.allowed_extensions, head)
-    if not validation.is_valid:
-        logger.warning("upload rejected: %s (%s)", original_filename, validation.reason)
-        raise HTTPException(status_code=400, detail=validation.reason)
-
-    stored_name = f"{uuid.uuid4().hex}_{safe_filename}"
-    destination = settings.upload_dir / stored_name
-    total_size = 0
-
     try:
+        head = await upload.read(8192)
+        validation = validate_printable_file(safe_filename, settings.allowed_extensions, head)
+        if not validation.is_valid:
+            logger.warning("upload rejected: %s (%s)", original_filename, validation.reason)
+            raise HTTPException(status_code=400, detail=validation.reason)
+
+        stored_name = f"{uuid.uuid4().hex}_{safe_filename}"
+        destination = settings.upload_dir / stored_name
+        total_size = 0
+
         with destination.open("wb") as output:
             if head:
                 output.write(head)
@@ -228,7 +254,8 @@ async def _save_upload(
                     raise HTTPException(status_code=413, detail="文件超过上传大小限制")
                 output.write(chunk)
     except Exception:
-        destination.unlink(missing_ok=True)
+        if "destination" in locals():
+            destination.unlink(missing_ok=True)
         raise
     finally:
         await upload.close()
@@ -243,6 +270,59 @@ async def _save_upload(
     )
     logger.info("upload accepted as job %s: %s", job.id, original_filename)
     return job
+
+
+async def _save_uploads(
+    uploads: list[UploadFile],
+    store: QueueStore,
+    settings: Settings,
+) -> UploadBatchResult:
+    accepted: list[UploadFileResult] = []
+    rejected: list[UploadFileResult] = []
+    results: list[UploadFileResult] = []
+
+    for upload in uploads:
+        filename = upload.filename or "upload"
+        try:
+            job = await _save_upload(upload, store, settings)
+        except HTTPException as exc:
+            reason = str(exc.detail)
+            logger.warning("upload rejected in batch: %s (%s)", filename, reason)
+            item = UploadFileResult(filename=filename, accepted=False, error=reason)
+            rejected.append(item)
+            results.append(item)
+        except Exception:
+            logger.exception("upload failed unexpectedly in batch: %s", filename)
+            item = UploadFileResult(filename=filename, accepted=False, error="上传处理失败")
+            rejected.append(item)
+            results.append(item)
+        else:
+            item = UploadFileResult(filename=filename, accepted=True, job=job)
+            accepted.append(item)
+            results.append(item)
+
+    logger.info("upload batch finished: accepted=%s rejected=%s", len(accepted), len(rejected))
+    return UploadBatchResult(
+        results=results,
+        accepted=accepted,
+        rejected=rejected,
+        accepted_count=len(accepted),
+        rejected_count=len(rejected),
+        total_count=len(accepted) + len(rejected),
+    )
+
+
+def _collect_uploads(
+    *,
+    upload: UploadFile | None,
+    uploads: list[UploadFile] | None,
+) -> list[UploadFile]:
+    files: list[UploadFile] = []
+    if upload is not None and upload.filename:
+        files.append(upload)
+    if uploads:
+        files.extend(item for item in uploads if item.filename)
+    return files
 
 
 def _redirect(*, message: str | None = None, error: str | None = None) -> RedirectResponse:

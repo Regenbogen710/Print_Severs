@@ -21,11 +21,29 @@ class PrintJobOut(BaseModel):
     extension: str
     mime_type: str | None = None
     size_bytes: int
+    priority: int = 0
+    scheduled_at: datetime | None = None
     status: JobStatus
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error_message: str | None = None
+
+
+class UploadFileResult(BaseModel):
+    filename: str
+    accepted: bool
+    job: PrintJobOut | None = None
+    error: str | None = None
+
+
+class UploadBatchResult(BaseModel):
+    results: list[UploadFileResult]
+    accepted: list[UploadFileResult]
+    rejected: list[UploadFileResult]
+    accepted_count: int
+    rejected_count: int
+    total_count: int
 
 
 class PrinterStatusOut(BaseModel):

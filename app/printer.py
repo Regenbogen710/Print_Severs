@@ -245,6 +245,8 @@ try {
                 _env_path("ProgramFiles", "SumatraPDF", "SumatraPDF.exe"),
                 _env_path("ProgramFiles(x86)", "SumatraPDF", "SumatraPDF.exe"),
                 _env_path("LOCALAPPDATA", "SumatraPDF", "SumatraPDF.exe"),
+                _env_path("USERPROFILE", "scoop", "apps", "sumatrapdf", "current", "SumatraPDF.exe"),
+                Path("C:/ProgramData/chocolatey/bin/SumatraPDF.exe"),
                 Path("tools") / "SumatraPDF.exe",
             ],
             ["SumatraPDF.exe", "sumatrapdf.exe"],
@@ -256,6 +258,8 @@ try {
             [
                 _env_path("ProgramFiles", "LibreOffice", "program", "soffice.exe"),
                 _env_path("ProgramFiles(x86)", "LibreOffice", "program", "soffice.exe"),
+                _env_path("USERPROFILE", "scoop", "apps", "libreoffice", "current", "program", "soffice.exe"),
+                Path("C:/ProgramData/chocolatey/bin/soffice.exe"),
             ],
             ["soffice.exe"],
         )

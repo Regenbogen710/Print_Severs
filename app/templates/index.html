@@ -45,14 +45,21 @@
     </section>
 
     <section class="workspace">
-      <form class="upload-panel" action="/upload" method="post" enctype="multipart/form-data">
+      <form id="uploadForm" class="upload-panel" action="/upload" method="post" enctype="multipart/form-data">
         <div>
           <span class="label">上传文件</span>
           <h2>加入打印队列</h2>
         </div>
-        <input type="file" name="upload" required accept="{{ settings.allowed_extensions | join(',') }}">
-        <button type="submit">上传</button>
+        <label id="dropZone" class="drop-zone">
+          <input id="fileInput" type="file" name="uploads" multiple required accept="{{ settings.allowed_extensions | join(',') }}">
+          <span class="drop-title">拖入文件或点击选择</span>
+          <span class="drop-hint">支持 {{ settings.allowed_extensions | join(", ") }}</span>
+        </label>
+        <div id="selectedFiles" class="selected-files" aria-live="polite">尚未选择文件</div>
+        <button id="uploadButton" type="submit">加入队列</button>
       </form>
+
+      <div id="uploadResults" class="upload-results" aria-live="polite" hidden></div>
 
       <div class="admin-panel">
         <form action="/admin/pause" method="post">
@@ -69,7 +76,7 @@
     <section class="queue">
       <div class="section-title">
         <h2>打印队列</h2>
-        <span>{{ snapshot.jobs | length }} 个任务</span>
+        <span id="jobCount">{{ snapshot.jobs | length }} 个任务</span>
       </div>
       <div class="table-wrap">
         <table>
@@ -84,7 +91,7 @@
               <th>操作</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="jobsBody">
             {% for job in snapshot.jobs %}
               <tr class="row-{{ job.status }}">
                 <td>#{{ job.id }}</td>
@@ -120,9 +127,12 @@
     </section>
   </main>
   <script>
-    window.setTimeout(function () {
-      window.location.reload();
-    }, 12000);
+    window.PRINT_SERVER = {
+      allowedExtensions: {{ settings.allowed_extensions | tojson }},
+      maxUploadBytes: {{ settings.max_upload_bytes }},
+      statusLabels: {{ status_labels | tojson }}
+    };
   </script>
+  <script src="/static/upload.js"></script>
 </body>
 </html>

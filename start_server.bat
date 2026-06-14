@@ -19,6 +19,8 @@ if /I "%~1"=="--check" (
         echo [ERROR] config.ini not found.
         exit /b 1
     )
+    call :find_python
+    if errorlevel 1 exit /b 1
     echo [OK] start_server.bat is ready in %CD%
     exit /b 0
 )
@@ -35,15 +37,17 @@ if errorlevel 1 goto fail
 
 if not exist ".venv\Scripts\python.exe" (
     echo [INFO] Creating virtual environment...
-    %PYTHON% -m venv .venv
+    call %PYTHON_CMD% -m venv .venv
     if errorlevel 1 goto fail
 )
 
-call ".venv\Scripts\activate.bat"
-if errorlevel 1 goto fail
+if not exist ".venv\Scripts\python.exe" (
+    echo [ERROR] Virtual environment was not created correctly.
+    goto fail
+)
 
 echo [INFO] Installing dependencies...
-python -m pip install -r requirements.txt
+".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto fail
 
 if not exist "config.ini" (
@@ -66,20 +70,34 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_fore
 goto end
 
 :find_python
-where py >nul 2>nul
+call :try_python py -3
 if not errorlevel 1 (
-    set "PYTHON=py -3"
+    echo [INFO] Using Python: %PYTHON_CMD%
     exit /b 0
 )
 
-where python >nul 2>nul
+call :try_python python
 if not errorlevel 1 (
-    set "PYTHON=python"
+    echo [INFO] Using Python: %PYTHON_CMD%
     exit /b 0
 )
 
-echo [ERROR] Python was not found. Please install Python 3.11 or newer.
+echo [ERROR] Python 3.11 or newer was not found. Please install Python and retry.
 exit /b 1
+
+:try_python
+if "%~2"=="" (
+    "%~1" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul
+) else (
+    "%~1" %~2 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul
+)
+if errorlevel 1 exit /b 1
+if "%~2"=="" (
+    set "PYTHON_CMD=%~1"
+) else (
+    set "PYTHON_CMD=%~1 %~2"
+)
+exit /b 0
 
 :fail
 echo.

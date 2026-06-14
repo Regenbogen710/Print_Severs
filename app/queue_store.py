@@ -39,6 +39,8 @@ class QueueStore:
                     extension TEXT NOT NULL,
                     mime_type TEXT,
                     size_bytes INTEGER NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    scheduled_at TEXT,
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
@@ -47,6 +49,7 @@ class QueueStore:
                 )
                 """
             )
+            self._ensure_job_columns(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS state (
@@ -70,6 +73,8 @@ class QueueStore:
         extension: str,
         mime_type: str | None,
         size_bytes: int,
+        priority: int = 0,
+        scheduled_at: datetime | None = None,
     ) -> PrintJobOut:
         created_at = utcnow()
         with self._lock, self._connect() as conn:
@@ -77,9 +82,9 @@ class QueueStore:
                 """
                 INSERT INTO jobs (
                     original_filename, safe_filename, stored_path, extension, mime_type,
-                    size_bytes, status, created_at
+                    size_bytes, priority, scheduled_at, status, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'waiting', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)
                 """,
                 (
                     original_filename,
@@ -88,6 +93,8 @@ class QueueStore:
                     extension,
                     mime_type,
                     size_bytes,
+                    priority,
+                    dt_to_text(scheduled_at),
                     dt_to_text(created_at),
                 ),
             )
@@ -110,9 +117,31 @@ class QueueStore:
         return [self._row_to_job(row) for row in rows]
 
     def get_next_waiting(self) -> PrintJobOut | None:
+        return self.get_next_schedulable()
+
+    def get_next_schedulable(
+        self,
+        *,
+        now: datetime | None = None,
+        rule: str = "fifo",
+    ) -> PrintJobOut | None:
+        now_text = dt_to_text(now or utcnow())
+        order_by = "created_at ASC, id ASC"
+        if rule == "priority_fifo":
+            order_by = "priority DESC, created_at ASC, id ASC"
+        elif rule != "fifo":
+            raise ValueError(f"unsupported schedule rule: {rule}")
+
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'waiting' ORDER BY id ASC LIMIT 1"
+                f"""
+                SELECT * FROM jobs
+                WHERE status = 'waiting'
+                  AND (scheduled_at IS NULL OR scheduled_at <= ?)
+                ORDER BY {order_by}
+                LIMIT 1
+                """,
+                (now_text,),
             ).fetchone()
         return self._row_to_job(row) if row is not None else None
 
@@ -206,6 +235,16 @@ class QueueStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _ensure_job_columns(self, conn: sqlite3.Connection) -> None:
+        existing_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        if "priority" not in existing_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        if "scheduled_at" not in existing_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN scheduled_at TEXT")
+
     def _row_to_job(self, row: sqlite3.Row) -> PrintJobOut:
         return PrintJobOut(
             id=row["id"],
@@ -215,6 +254,8 @@ class QueueStore:
             extension=row["extension"],
             mime_type=row["mime_type"],
             size_bytes=row["size_bytes"],
+            priority=row["priority"],
+            scheduled_at=text_to_dt(row["scheduled_at"]),
             status=row["status"],
             created_at=text_to_dt(row["created_at"]) or utcnow(),
             started_at=text_to_dt(row["started_at"]),

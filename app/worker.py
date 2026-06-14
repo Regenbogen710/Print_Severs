@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.printer import WindowsPrinter
 from app.queue_store import QueueStore, utcnow
+from app.scheduler import PrintScheduler
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class PrintWorker:
         self.store = store
         self.printer = printer
         self.poll_seconds = poll_seconds
+        self.scheduler = PrintScheduler(store)
         self._stop_event = asyncio.Event()
 
     async def run(self) -> None:
@@ -38,14 +40,12 @@ class PrintWorker:
         self._stop_event.set()
 
     async def process_once(self) -> None:
-        state = self.store.get_state()
-        if state.paused:
-            return
-
-        job = self.store.get_next_waiting()
+        decision = self.scheduler.select_next()
+        job = decision.job
         if job is None:
             return
 
+        logger.info("job %s scheduled by %s", job.id, decision.rule)
         status = await asyncio.to_thread(self.printer.status)
         if not status.ready:
             reason = f"打印前状态检查失败：{status.message}"

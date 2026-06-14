@@ -1,6 +1,6 @@
 # PrintSevers
 
-面向 Windows 的本地网页打印服务，默认只允许 localhost 和局域网地址访问，目标打印机为 `Lenovo LJ2205`。用户通过网页上传文件，服务端校验文件格式后加入 SQLite 打印队列；后台 worker 每次打印前检查打印机状态，失败后暂停整个服务，只能在服务端本机恢复。
+面向 Windows 的本地网页打印服务，默认只允许 localhost 和局域网地址访问，目标打印机为 `Lenovo LJ2205`。用户通过网页上传或拖拽添加文件，服务端逐个校验后加入 SQLite 打印队列；后台调度器默认按 FIFO 选择任务，worker 每次打印前检查打印机状态，失败后暂停整个服务，只能在服务端本机恢复。
 
 ## 架构设计
 
@@ -11,6 +11,7 @@
       -> HTTP Basic 管理员认证
       -> 上传校验与安全文件名
       -> SQLite 队列/服务状态
+      -> FIFO 打印调度器
       -> 后台 PrintWorker
           -> Windows 打印机状态检查
           -> SumatraPDF / LibreOffice / Windows Shell 打印命令
@@ -23,15 +24,35 @@
 - `app/run_server.py`：读取配置后启动 Uvicorn 服务，并监控启动脚本父进程。
 - `app/security.py`：局域网默认放行、公网白名单、管理员认证、本机恢复限制。
 - `app/upload_validation.py`：扩展名、文件头、大小和安全文件名校验。
-- `app/queue_store.py`：SQLite 打印队列和暂停状态持久化。
+- `app/queue_store.py`：SQLite 打印队列、调度字段和暂停状态持久化。
+- `app/scheduler.py`：打印调度器，默认 FIFO，预留优先级和定时打印扩展。
 - `app/printer.py`：Lenovo LJ2205 的 Windows 状态检查与打印命令封装。
-- `app/worker.py`：串行消费队列，打印前检查状态，失败即暂停。
+- `app/worker.py`：执行调度器选中的任务，打印前检查状态，失败即暂停。
 - `scripts/local_admin.py`：服务端本机命令行暂停/恢复/查看状态。
+- `scripts/deploy.ps1`：一键部署脚本，安装依赖并扫描 SumatraPDF/LibreOffice 路径。
 - `scripts/start_foreground.ps1`：前台守护启动脚本，实时输出并写入启动日志。
+- `deploy.bat`：Windows 双击一键部署脚本。
 - `start_server.bat`：Windows 双击一键启动脚本，读取根目录 `config.ini` 启动服务。
 - `package_release.bat`：Windows 双击一键打包脚本，生成可分发 zip。
 
 ## 安装
+
+推荐直接双击根目录的 `deploy.bat`。它会自动完成：
+
+- 检查必要文件。
+- 创建 `.venv` 虚拟环境。
+- 安装 `requirements.txt` 中的依赖。
+- 扫描 SumatraPDF 和 LibreOffice 的常见安装位置、PATH 和注册表 App Paths。
+- 将扫描到的路径写入 `config.ini` 的 `[printer]` 配置。
+- 记录部署日志到 `data/logs/deploy-latest.log`。
+
+命令行部署：
+
+```powershell
+.\deploy.bat
+```
+
+也可以手动安装：
 
 ```powershell
 python -m venv .venv
@@ -60,8 +81,8 @@ Get-Printer | Select-Object Name, PrinterStatus, WorkOffline
 ```
 
 3. 如果名称不是 `Lenovo LJ2205`，把 `config.ini` 里的 `printer_name` 改成实际名称。
-4. 推荐安装 SumatraPDF 并配置 `sumatra_pdf_path`，PDF 打印会更可靠。留空时会自动查找常见安装路径。
-5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `libreoffice_path`。留空时会自动查找常见安装路径。
+4. 推荐安装 SumatraPDF 并配置 `sumatra_pdf_path`，PDF 打印会更可靠。运行 `deploy.bat` 会自动扫描并记录路径；留空时服务运行时也会自动查找常见安装路径。
+5. 如需打印 Word/RTF/TXT，推荐安装 LibreOffice 并配置 `libreoffice_path`。运行 `deploy.bat` 会自动扫描并记录路径；留空时服务运行时也会自动查找常见安装路径。
 6. 图片会优先调用 Windows 画图打印；其它格式才回退到 Windows Shell 的 `PrintTo/Print`。
 
 PDF 打印如果报“没有关联可打印程序”，请在 `config.ini` 中设置：
@@ -124,6 +145,8 @@ http://192.168.1.20:8000
 .pdf, .png, .jpg, .jpeg, .bmp, .gif, .tif, .tiff, .doc, .docx, .rtf, .txt
 ```
 
+网页上传区域支持点击选择和拖拽添加文件，可以一次添加多个文件。提交时页面会锁定上传按钮，避免重复提交；服务端会逐个处理文件，并在页面展示每个文件的入队结果或失败原因。旧的单文件接口 `/api/upload` 保持兼容，新的批量接口为 `/api/uploads`。
+
 上传时会做这些检查：
 
 - 文件大小不得超过 `config.ini` 中的 `max_upload_mb`。
@@ -138,6 +161,8 @@ http://192.168.1.20:8000
 - `completed`：已提交并完成本次 worker 流程。
 - `failed`：失败，服务会自动暂停。
 - `deleted`：管理员删除。
+
+调度器默认使用 FIFO：按任务创建时间从早到晚选择下一个 `waiting` 任务。队列表已预留 `priority` 和 `scheduled_at` 字段，后续可扩展优先级调度和定时打印；调度前如果服务已暂停，worker 不会继续处理任务。
 
 ## 打印机状态与失败暂停
 
@@ -247,7 +272,7 @@ dry_run = true
 dist/PrintSevers-版本号-windows-时间戳.zip
 ```
 
-压缩包会包含源码、启动脚本、`config.ini`、测试和说明文档；不会包含 `.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
+压缩包会包含源码、部署脚本、启动脚本、`config.ini`、测试和说明文档；不会包含 `.git`、`data/`、虚拟环境、缓存、日志或队列数据库。
 
 命令行打包：
 
