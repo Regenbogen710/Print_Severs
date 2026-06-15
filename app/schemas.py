@@ -22,6 +22,7 @@ class PrintJobOut(BaseModel):
     mime_type: str | None = None
     size_bytes: int
     priority: int = 0
+    print_order: int = 0
     scheduled_at: datetime | None = None
     status: JobStatus
     created_at: datetime
@@ -57,3 +58,15 @@ class QueueSnapshot(BaseModel):
     state: ServerState
     printer: PrinterStatusOut
     jobs: list[PrintJobOut]
+
+
+class ReorderJobsRequest(BaseModel):
+    job_ids: list[int] = Field(min_length=1)
+
+
+class AdminPasswordCheckRequest(BaseModel):
+    password: str = Field(min_length=1)
+
+
+class AdminAuthCheckResponse(BaseModel):
+    ok: bool = True

@@ -40,6 +40,7 @@ class QueueStore:
                     mime_type TEXT,
                     size_bytes INTEGER NOT NULL,
                     priority INTEGER NOT NULL DEFAULT 0,
+                    print_order INTEGER NOT NULL DEFAULT 0,
                     scheduled_at TEXT,
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -98,6 +99,10 @@ class QueueStore:
                     dt_to_text(created_at),
                 ),
             )
+            conn.execute(
+                "UPDATE jobs SET print_order = ? WHERE id = ?",
+                (cursor.lastrowid, cursor.lastrowid),
+            )
             conn.commit()
             return self.get_job(cursor.lastrowid)
 
@@ -111,7 +116,19 @@ class QueueStore:
     def list_jobs(self, limit: int = 100) -> list[PrintJobOut]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM jobs ORDER BY id DESC LIMIT ?",
+                """
+                SELECT * FROM jobs
+                ORDER BY
+                    CASE
+                        WHEN status = 'waiting' THEN 0
+                        WHEN status = 'printing' THEN 1
+                        ELSE 2
+                    END ASC,
+                    print_order ASC,
+                    created_at ASC,
+                    id ASC
+                LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
         return [self._row_to_job(row) for row in rows]
@@ -126,9 +143,9 @@ class QueueStore:
         rule: str = "fifo",
     ) -> PrintJobOut | None:
         now_text = dt_to_text(now or utcnow())
-        order_by = "created_at ASC, id ASC"
+        order_by = "print_order ASC, created_at ASC, id ASC"
         if rule == "priority_fifo":
-            order_by = "priority DESC, created_at ASC, id ASC"
+            order_by = "priority DESC, print_order ASC, created_at ASC, id ASC"
         elif rule != "fifo":
             raise ValueError(f"unsupported schedule rule: {rule}")
 
@@ -144,6 +161,46 @@ class QueueStore:
                 (now_text,),
             ).fetchone()
         return self._row_to_job(row) if row is not None else None
+
+    def reorder_waiting_jobs(self, job_ids: list[int]) -> list[PrintJobOut]:
+        unique_ids = list(dict.fromkeys(job_ids))
+        if not unique_ids:
+            raise ValueError("排序列表不能为空")
+
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT id, status FROM jobs WHERE id IN ({placeholders})",
+                unique_ids,
+            ).fetchall()
+            found_ids = {row["id"] for row in rows}
+            missing_ids = [job_id for job_id in unique_ids if job_id not in found_ids]
+            if missing_ids:
+                raise KeyError(f"任务不存在：{missing_ids[0]}")
+
+            non_waiting = [row["id"] for row in rows if row["status"] != "waiting"]
+            if non_waiting:
+                raise ValueError(f"只能调整等待中的任务：{non_waiting[0]}")
+
+            waiting_rows = conn.execute(
+                """
+                SELECT id FROM jobs
+                WHERE status = 'waiting'
+                ORDER BY print_order ASC, created_at ASC, id ASC
+                """
+            ).fetchall()
+            waiting_ids = [row["id"] for row in waiting_rows]
+            provided = set(unique_ids)
+            final_ids = unique_ids + [job_id for job_id in waiting_ids if job_id not in provided]
+
+            for index, job_id in enumerate(final_ids, start=1):
+                conn.execute(
+                    "UPDATE jobs SET print_order = ? WHERE id = ? AND status = 'waiting'",
+                    (index, job_id),
+                )
+            conn.commit()
+
+        return [self.get_job(job_id) for job_id in final_ids]
 
     def update_job_status(
         self,
@@ -242,6 +299,9 @@ class QueueStore:
         }
         if "priority" not in existing_columns:
             conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        if "print_order" not in existing_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN print_order INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE jobs SET print_order = id WHERE print_order = 0")
         if "scheduled_at" not in existing_columns:
             conn.execute("ALTER TABLE jobs ADD COLUMN scheduled_at TEXT")
 
@@ -255,6 +315,7 @@ class QueueStore:
             mime_type=row["mime_type"],
             size_bytes=row["size_bytes"],
             priority=row["priority"],
+            print_order=row["print_order"],
             scheduled_at=text_to_dt(row["scheduled_at"]),
             status=row["status"],
             created_at=text_to_dt(row["created_at"]) or utcnow(),

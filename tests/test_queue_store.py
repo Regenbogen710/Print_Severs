@@ -35,3 +35,33 @@ def test_queue_store_lifecycle(tmp_path: Path) -> None:
     resumed = store.set_paused(False, None)
     assert not resumed.paused
     assert resumed.pause_reason is None
+
+
+def test_queue_store_orders_waiting_jobs_by_print_order(tmp_path: Path) -> None:
+    store = QueueStore(tmp_path / "queue.sqlite3")
+    store.initialize()
+
+    first = store.create_job(
+        original_filename="first.pdf",
+        safe_filename="first.pdf",
+        stored_path=tmp_path / "first.pdf",
+        extension=".pdf",
+        mime_type="application/pdf",
+        size_bytes=12,
+    )
+    second = store.create_job(
+        original_filename="second.pdf",
+        safe_filename="second.pdf",
+        stored_path=tmp_path / "second.pdf",
+        extension=".pdf",
+        mime_type="application/pdf",
+        size_bytes=12,
+    )
+
+    assert [job.id for job in store.list_jobs()] == [first.id, second.id]
+    assert store.get_next_waiting().id == first.id
+
+    store.reorder_waiting_jobs([second.id, first.id])
+
+    assert [job.id for job in store.list_jobs()] == [second.id, first.id]
+    assert store.get_next_waiting().id == second.id

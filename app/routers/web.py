@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import logging
+import secrets
 from urllib.parse import urlencode
 import uuid
 
@@ -14,7 +15,16 @@ from app.config import Settings, get_settings
 from app.dependencies import get_printer, get_store
 from app.printer import WindowsPrinter
 from app.queue_store import QueueStore
-from app.schemas import PrintJobOut, QueueSnapshot, ServerState, UploadBatchResult, UploadFileResult
+from app.schemas import (
+    AdminAuthCheckResponse,
+    AdminPasswordCheckRequest,
+    PrintJobOut,
+    QueueSnapshot,
+    ReorderJobsRequest,
+    ServerState,
+    UploadBatchResult,
+    UploadFileResult,
+)
 from app.security import require_admin, require_local_request, require_upload_auth
 from app.upload_validation import sanitize_filename, validate_printable_file
 
@@ -146,6 +156,22 @@ async def pause_from_api(
     return state
 
 
+@router.post("/api/admin/auth/check", response_model=AdminAuthCheckResponse)
+async def check_admin_password(
+    payload: AdminPasswordCheckRequest,
+    settings: Settings = Depends(get_settings),
+):
+    if not secrets.compare_digest(payload.password, settings.admin_password):
+        logger.warning("admin password check failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="管理员密码错误",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    logger.info("admin password check succeeded")
+    return AdminAuthCheckResponse()
+
+
 @router.post(
     "/admin/resume",
     dependencies=[Depends(require_admin), Depends(require_local_request)],
@@ -209,6 +235,21 @@ async def delete_from_api(job_id: int, store: QueueStore = Depends(get_store)):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/admin/jobs/reorder", response_model=list[PrintJobOut], dependencies=[Depends(require_admin)])
+async def reorder_jobs_from_api(
+    payload: ReorderJobsRequest,
+    store: QueueStore = Depends(get_store),
+):
+    try:
+        jobs = store.reorder_waiting_jobs(payload.job_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("waiting jobs reordered: %s", payload.job_ids)
+    return jobs
 
 
 async def _snapshot(store: QueueStore, printer: WindowsPrinter) -> QueueSnapshot:
